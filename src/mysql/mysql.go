@@ -52,8 +52,9 @@ func ProcessSql(sqlfile string, packageName string) error {
 	return nil
 }
 
-func sqlTypeToGo(sqlType string) string {
+func sqlTypeToGo(sqlType string) (string, bool) {
 	var r string
+	var u bool = false
 	switch sqlType {
 	case "bigint":
 		r = "int64"
@@ -61,6 +62,7 @@ func sqlTypeToGo(sqlType string) string {
 		r = "string"
 	case "date", "datetime", "time", "timestamp", "year", "decimal":
 		r = "string"
+		u = true
 	case "double":
 		r = "double"
 	case "float":
@@ -69,7 +71,7 @@ func sqlTypeToGo(sqlType string) string {
 		r = "int"
 	}
 
-	return r
+	return r, u
 }
 
 func firstToUpper(src string) string {
@@ -154,13 +156,25 @@ func parseSql(sql string, index [][]int, packageName string) error {
 
 			con = con + "type " + typeName + " struct {\n"
 			for _, s := range keys {
-				tp := sqlTypeToGo(s[1])
-				con = con + underlineToUpper(s[0]) + " " + tp + " `json:\"" + s[0] + "," + tp + "\"`\n"
+				tp, us := sqlTypeToGo(s[1])
+				ky := s[0]
+				var jsonContent string
+				if us {
+					jsonContent = " `json:\"" + ky + "," + tp + "\"`\n"
+				} else {
+					jsonContent = " `json:\"" + ky + "\"`\n"
+				}
+				con = con + underlineToUpper(ky) + " " + tp + jsonContent
 
-				if s[0] != "id" && s[0] != "create_time" && s[0] != "time_version" {
-					fcon = fcon + s[0] + ","
-					fconValues = fconValues + "?,"
-					fconParams = fconParams + "d." + underlineToUpper(s[0]) + ","
+				if ky != "create_time" && ky != "time_version" {
+					fcon = fcon + ky + ","
+					if ky == "id" {
+						// if insert failed the major key still incrementing
+						fconValues = fconValues + "(SELECT id FROM(SELECT ((SELECT MAX(id) id FROM " + tabname + ") + 1) as id) tb),"
+					} else {
+						fconValues = fconValues + "?,"
+						fconParams = fconParams + "d." + underlineToUpper(ky) + ","
+					}
 				}
 			}
 
